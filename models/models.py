@@ -152,8 +152,16 @@ def create_modules(module_defs, img_size, cfg):
         elif mdef['type'] == 'route':  # nn.Sequential() placeholder for 'route' layer
             layers = mdef['layers']
             filters = sum([output_filters[l + 1 if l > 0 else l] for l in layers])
+            print(filters)
             routs.extend([i + l if l < 0 else l for l in layers])
-            modules = FeatureConcat(layers=layers)
+
+            if 'groups' in mdef:
+                groups = mdef['groups']
+                group_id = mdef['group_id']
+                modules = RouteGroup(layers=layers,groups=groups,group_id=group_id)
+                filters //= groups
+            else:
+                modules = FeatureConcat(layers=layers)
 
         elif mdef['type'] == 'route2':  # nn.Sequential() placeholder for 'route' layer
             layers = mdef['layers']
@@ -192,7 +200,7 @@ def create_modules(module_defs, img_size, cfg):
             if any(x in cfg for x in ['yolov4-tiny', 'fpn', 'yolov3']):  # P5, P4, P3 strides
                 stride = [32, 16, 8]
             layers = mdef['from'] if 'from' in mdef else []
-            modules = YOLOLayer(anchors=mdef['anchors'][mdef['mask']],  # anchor list
+            modules = YOLOLayer(anchors=mdef['anchors'][mdef['mask']],  # anchor list 注意此处的anchor对应方式
                                 nc=mdef['classes'],  # number of classes
                                 img_size=img_size,  # (416, 416)
                                 yolo_index=yolo_index,  # 0, 1, 2...
@@ -254,6 +262,8 @@ def create_modules(module_defs, img_size, cfg):
     routs_binary = [False] * (i + 1)
     for i in routs:
         routs_binary[i] = True
+
+    torch_utils.model_info(module_list,img_size=416,verbose=True)
     return module_list, routs_binary
 
 
@@ -271,6 +281,8 @@ class YOLOLayer(nn.Module):
         self.nx, self.ny, self.ng = 0, 0, 0  # initialize number of x, y gridpoints
         self.anchor_vec = self.anchors / self.stride
         self.anchor_wh = self.anchor_vec.view(1, self.na, 1, 1, 2)
+        print(self.anchors)
+        print(self.stride)
 
         if ONNX_EXPORT:
             self.training = False
@@ -678,3 +690,7 @@ def attempt_download(weights):
         if not (r == 0 and os.path.exists(weights) and os.path.getsize(weights) > 1E6):  # weights exist and > 1MB
             os.system('rm ' + weights)  # remove partial downloads
             raise Exception(msg)
+
+if __name__ == "__main__":
+    module_defs = parse_model_cfg("yolov4-tiny.cfg")
+    create_modules(module_defs, (416, 416), "yolov4-tiny.cfg")
